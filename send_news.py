@@ -1,30 +1,42 @@
 import requests
-from googletrans import Translator
+import openai
 
-# Telegram bot token ve chat ID
+# Telegram
 TOKEN = "7270680340:AAENSNCCoXsL40voZF2tS_-gP6EtKO_KJn0"
 CHAT_ID = "8058541002"
 
-# News API anahtarı
+# OpenAI
+import os
+openai.api_key = os.getenv("OPENAI_API_KEY")
+# NewsAPI
 NEWS_API_KEY = "824a8c4a436447d8a46378005c7744ec"
 
-def get_translated_news(category):
-    url = f"https://newsapi.org/v2/top-headlines?language=en&category={category}&pageSize=3&apiKey={NEWS_API_KEY}"
+def get_news_headlines():
+    url = f"https://newsapi.org/v2/top-headlines?language=en&category=technology&pageSize=5&apiKey={NEWS_API_KEY}"
     response = requests.get(url)
-    data = response.json()
+    articles = response.json().get("articles", [])
+    headlines = [a["title"] for a in articles if a.get("title")]
+    return headlines
 
-    translator = Translator()
-    news_items = []
+def summarize_with_openai(headlines):
+    prompt = (
+        "Aşağıda İngilizce haber başlıkları verilmiştir. "
+        "Her başlığı Türkçe olarak özetle ve anlamlı bir şekilde sırala:\n\n"
+    )
+    for i, h in enumerate(headlines, 1):
+        prompt += f"{i}. {h}\n"
 
-    if data.get("articles"):
-        for article in data["articles"]:
-            title_en = article.get("title", "")
-            if title_en:
-                translated = translator.translate(title_en, src="en", dest="tr")
-                news_items.append(f"- {translated.text}")
-    return news_items
+    prompt += "\nTürkçe özetlenmiş hali:\n"
 
-def send_message(text):
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+
+    return response["choices"][0]["message"]["content"]
+
+def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
@@ -34,14 +46,9 @@ def send_message(text):
     requests.post(url, data=payload)
 
 def main():
-    general_news = get_translated_news("general")
-    tech_news = get_translated_news("technology")
-
-    message = "🗞️ *GÜNLÜK HABER ÖZETİ*\n\n"
-    message += "*Genel Dünya Gündemi:*\n" + "\n".join(general_news) + "\n\n"
-    message += "*Teknoloji Gündemi:*\n" + "\n".join(tech_news)
-
-    send_message(message)
+    headlines = get_news_headlines()
+    summary = summarize_with_openai(headlines)
+    send_telegram_message("🧠 *OpenAI Destekli Haber Özeti:*\n\n" + summary)
 
 if __name__ == "__main__":
     main()
